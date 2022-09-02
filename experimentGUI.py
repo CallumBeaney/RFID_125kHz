@@ -1,0 +1,592 @@
+# ______________________________CONTENTS
+# 1. GPIO & PYTHON LIBRARY IMPORTS
+# 2. TKINTER GUI   LIBRARY IMPORTS
+# 3. TKINTER GUI   DEFINITIONS
+# 4. RFID-READING  FUNCTIONALITY
+# 5. TKINTER GUI   BUTTONS
+# 6. TKINTER GUI   LAYOUT
+# 7. READERMODE    MENU CONFIGURATION
+# 8. POLLING DELAY MENU CONFIGURATION
+# 9. MAIN LOOP
+
+# To turn on all console messages for debugging, find & replace all "# print" with "print".
+
+
+#1._____________________________GPIO/WIRINGPI imports & setup
+import wiringpi as wiringpi2
+import time
+import sys
+import argparse
+import numbers
+
+# set for GPIO Pin to use based on the jumper connection
+GPIO_PIN = 1 # Jumper 1, also known as GPIO18 <-------------
+# GPIO_PIN = 0 # Jumper 2, also known as GPIO17
+# GPIO_PIN = 2 # Jumper 3, also known as GPIO21 (Rv 1) or GPIO27 (Rv 2)
+# GPIO_PIN = 3 # Jumper 4, also known as GPIO22
+
+
+#2._______________________________GUI IMPORTS
+from tkinter import *
+from tkinter.ttk import *
+from tkinter import messagebox
+from tkinter import simpledialog
+from turtle import width
+from curses import window
+
+
+#3._______________________________GUI DEFINITIONS
+
+# WINDOW 
+window = Tk()
+window.configure(bg='black')
+window.title("CognIot 125kHz RFID Reader")
+window.resizable(width=0, height=0) # force-prevent resizing
+
+# BUTTON STYLING
+style  = Style()
+style.configure('TButton', font = ('arial', 16), foreground = '#009900', width='30', wrap=WORD)
+# 'TButton' applies the style to _ALL_ buttons in the GUI
+
+
+#4._______________________________RFID-READING FUNCTIONALITY
+
+def WaitForCTS():
+    # continually monitor the selected GPIO pin and wait for the line to go low
+    # print ("Waiting for CTS")     # Added for debug purposes
+    while wiringpi2.digitalRead(GPIO_PIN):
+        time.sleep(0.001)
+    return
+
+def RFIDSetup():
+    # 1: Call setup for wiringpi2 software, 2: set GPIO pin for input, 3: Open serial port & set speed.
+    response = wiringpi2.wiringPiSetup()
+    wiringpi2.pinMode(GPIO_PIN, 0)
+    fd = wiringpi2.serialOpen('/dev/serial0', 9600) # fd = 'file descriptor'
+
+    # clear the serial buffer of any left over data
+    wiringpi2.serialFlush(fd)
+    
+    if response == 0 and fd >0:
+        # if wiringpi was successfully setup (0) and the opened channel is greater than zero (fd = 0 is a fail)
+        # print ("PI setup complete on channel %d" %fd)     # Added for debug purposes
+        return fd
+    else:
+        errmsg = "Unable to Setup communications.\nWiringPi setup status is '" + str(response) + "' (expected: 0).\nSerial port is " + str(fd) + " (expected: >0).\nExiting program."
+        messagebox.showinfo('ERROR', errmsg)
+        sys.exit()
+
+
+def Notice():
+    # TODO: Callum to delete when done
+    messagebox.showinfo('NOTICE', 'This function is still under development')
+    return
+
+    
+def ReadVersion(fd):
+    WaitForCTS()
+    # print ("Sending Read Version Command")     #Added for Debug purposes
+    wiringpi2.serialPuts(fd,"z")
+    time.sleep(0.1)
+    
+    ans = ReadText(fd)
+    # TKINTER SYNTAX: variableAlias.methodname("lineNum.columnNum", variable/command)
+    textBox.delete('1.0', END)  
+    textBox.insert('1.0', ans)  
+    
+
+def ReadText(fd):
+    # read the data back from the serial line and return it as a string to the calling function
+    qtydata = wiringpi2.serialDataAvail(fd)
+    print ("ReadText(fd) Amount of data: %d bytes" % qtydata)   # Added for debug purposes
+    response = ""
+    while qtydata > 0:
+        # while there is data to be read, read it back
+        # print ("Reading data back %d" % qtydata)   #Added for Debug purposes
+        response = response + chr(wiringpi2.serialGetchar(fd))
+        qtydata = qtydata - 1   
+    return response
+
+
+def ReadInt(fd):
+    # read a single character back from the serial line
+    qtydata = wiringpi2.serialDataAvail(fd)
+    time.sleep(0.3) # Use interrupt to avoid erroneous read failures
+    qtydata = wiringpi2.serialDataAvail(fd)
+    print ("ReadInt(fd) Amount of data: %s bytes" % qtydata)    # Added for debug purposes
+    
+    response = 0
+    if qtydata > 0:
+        # print ("Reading data back %d" % qtydata)   #Added for Debug purposes
+        response = wiringpi2.serialGetchar(fd)
+        time.sleep(0.1)
+    return response
+
+
+def ReadTagStatus(fd):
+    messagebox.showinfo(title='ATTENTION', message='Place tag to receiver and then press OK')
+
+    notag = True     # read the RFID reader until a tag is present
+    while notag:  
+        WaitForCTS()
+        # print ("Sending Tag Status Command")   #Added for Debug purposes
+        wiringpi2.serialPuts(fd,"S")
+        time.sleep(0.1)
+        ans = ReadInt(fd)
+        # print ("Tag Status: %s" % hex(ans))    # Added for Debug purposes
+        if ans == int("0xD6", 16):
+            # D6 is a positive response meaning tag present and read
+            notag = False
+    textBox.delete('1.0', END)
+    textBox.insert('1.0', 'tag status: ' + hex(ans) + '\nTag present and read.')
+    #print ("Tag Status: %s" % hex(ans))
+    return
+
+
+def TagPresent(fd):
+    # read the RFID reader until a tag is present
+    notag = True
+    while notag:
+        WaitForCTS()
+        # print ("Sending Tag Status Command")   #Added for Debug purposes
+        wiringpi2.serialPuts(fd,"S")
+        time.sleep(0.1)
+        ans = ReadInt(fd)
+        # print ("Tag Status: %s" % hex(ans))    # Added for Debug purposes
+        if ans == int("0xD6", 16):
+            notag = False
+            # print ("\nTag Present\n")
+    return
+
+
+def SetPollingDelay(fd, input): # set the polling delay for the reader
+    WaitForCTS()
+    wiringpi2.serialPutchar(fd, 0x50)
+    wiringpi2.serialPutchar(fd, 0x00)
+    
+    if input == "NO DELAY":
+            wiringpi2.serialPutchar(fd, 0x00) # 0x00 is no delay
+    elif input == "20ms":
+        wiringpi2.serialPutchar(fd, 0x20) # 0x20 is approx 20ms
+    elif input == "65ms":
+        wiringpi2.serialPutchar(fd, 0x40) # 0x40 is approx 65ms
+    elif input == "262ms (default)":
+        wiringpi2.serialPutchar(fd, 0x60) # 0x60 is approx 262ms
+    elif input == "1s":
+        wiringpi2.serialPutchar(fd, 0x80) # 0x80 is approx 1 Seconds
+    elif input == "4s":
+        wiringpi2.serialPutchar(fd, 0xA0) # 0xA0 is approx 4 Seconds
+
+    time.sleep(0.1)
+    textBox.delete('1.0', END)
+    
+    ans = ReadInt(fd)
+    
+    if ans == int("0xC0", 16):
+        # C0 is a positive result
+        textBox.insert('1.0', 'Polling delay changed.')
+
+    else:
+        errmsg = 'Unexpected response: %s \nPolling delay could not be changed.' % hex(ans)
+        messagebox.showinfo(title="ERROR", message=errmsg)
+        # flush any remaining characters from the buffer
+        wiringpi2.serialFlush(fd)
+    return
+
+
+def ReadPage(fd, page=None):
+    # When ReadAllPages() called with 2nd argument for 'page' then 'page=None' is overridden.
+    
+    if page == None:
+        # If calling a single page and not ReadAllPages()
+        textBox.delete('1.0', END)
+        textBox.insert('1.0', 'To read Tag Data Page, place tag on receiver...\n')
+        page = simpledialog.askstring(title="INPUT INFORMATION", prompt="Page Numbers start at 0.\nRead what page number?")
+        
+        if page.isnumeric() == False:
+            messagebox.showinfo(title='ATTENTION', message='You must input a number. Cancelled.')
+            return
+        if int(page) < 0:
+            messagebox.showinfo(title='ATTENTION', message='Number must be greater than 0. Cancelled.')
+            return
+
+    notag = True
+    while notag:
+        WaitForCTS()
+        pageInt = int(page)
+        # print ("Sending Tag Read Page Command")    #Added for Debug purposes
+        wiringpi2.serialPutchar(fd, 0x52)
+        wiringpi2.serialPutchar(fd, pageInt)
+        time.sleep(0.1)
+
+        ans = ReadInt(fd)
+        # print ("Tag Status: %s" % hex(ans))    #Added for Debug purposes
+        
+        if ans == int("0xD6", 16):
+            # print("Tag Present and Read") #Added for Debug purposes
+            notag = False
+            textBox.delete('1.0', END)
+            ans = ReadText(fd)
+            printText(ans, page, "page")
+            
+        elif ans == int("0xD2", 16):
+            # Tag page doesn't exist
+            # Return ans to break out of the ReadAllPages() calling loop.
+            errmsg = 'Page %s does not exist.' % page
+            messagebox.showinfo(title='ATTENTION', message=errmsg)
+            return ans
+        else:
+            # ans == int("0xC0", 16):
+            failmsg = 'Failed to read data from the serial line. Please try again.\nError Code: %s' % hex(ans)
+            messagebox.showinfo(title='ERROR', message=failmsg)
+            wiringpi2.serialFlush(fd)
+            return
+    return
+
+
+def ReadAllPages(fd):
+    # Cycle through and read all pages available
+    textBox.delete('1.0', END)
+    messagebox.showinfo(title='ATTENTION', message='Reading all Pages.\nThis may take several seconds.')
+    
+    for f in range (0, 0x3f):
+        ans = ReadPage(fd, f)
+        if ans == int("0xD2", 16):
+            messagebox.showinfo(title='ATTENTION', message='Successfully read all Pages on this tag.')
+            break
+    return
+
+def ReadAllBlocks(fd):
+    messagebox.showinfo(title='ATTENTION', message='Reading all Blocks.\nThis may take several seconds.')
+    textBox.delete('1.0', END)
+    
+    for f in range (0, 16):
+        ans = ReadBlock(fd, f)
+        if ans == int("0xD2", 16):
+            messagebox.showinfo(title='ATTENTION', message='Successfully read all Blocks on this tag.')
+            break
+    return
+
+
+def ReadBlock(fd, block=None):
+    # read the tag and all blocks from within it
+  
+    mode = readerModeVariable.get()
+    if mode != "Hitag H1/S":
+        messagebox.showinfo(title='ATTENTION', message='This functionality only supports Hitag H1/S tags.')
+        return
+    
+    if block == None:
+        textBox.delete('1.0', END)
+        textBox.insert('1.0', 'To read Tag Data Block, please place tag on receiver...\n')
+        
+        block = simpledialog.askstring(title="INPUT", prompt="Place the tag to the receiver and input a block to read", initialvalue='Enter number >0 and <255')
+        if block.isnumeric() == False:
+            messagebox.showinfo(title='ATTENTION', message='You must input a number. Cancelled.')
+            return
+        if int(block) > 255 or int(block) < 0:
+            messagebox.showinfo(title='ATTENTION', message='Number must be between 0 and 255. Cancelled.')
+            return
+    
+    notag = True
+    while notag:
+        WaitForCTS()
+        # print ("Sending Tag Read Blocks command")  #Added for Debug purposes
+        wiringpi2.serialPutchar(fd, 0x72)
+        wiringpi2.serialPutchar(fd, int(block))
+        time.sleep(0.1)
+        
+        ans = ReadInt(fd)
+        # print ("Tag Status: %s" % hex(ans))    #Added for Debug purposes
+        if ans == int("0xD6", 16):
+            # Tag present and read
+            notag = False
+            textBox.delete('1.0', END)
+            ans = ReadText(fd)
+            printText(ans, block, "block")
+        elif ans == int("0xD2", 16):
+            # Tag page doesn't exist.
+            # Return ans to break out of the ReadAllPages() calling loop.
+            errmsg = 'Block %s does not exist.' % block
+            messagebox.showinfo(title='ATTENTION', message=errmsg)
+            return ans
+        else:
+            # ans == int("0xC0", 16):
+            messagebox.showinfo(title='ERROR', message='Failed to read data from the serial line. Please try again.')
+            wiringpi2.serialFlush(fd)
+            return            
+    return
+
+
+def CaptureDataToWrite(qty):
+    # provide an additional menu to capture the data to be written to the tag, return the bytes to be written
+    
+    to_write = []
+    choice = ""
+    counter = 0
+
+    while (counter < qty):
+        # Loop round getting, checking and saving the byte, prompting the user for a choice
+        choice = simpledialog.askstring(title="INPUT", prompt="Please enter byte %d to write (0 - 255).....:" % counter)
+
+        try:
+            # print ("Values read:%d" % int(choice))            # added for debug purposes
+            if int(choice) > 0 and int(choice) < 255:
+                to_write.append(int(choice))
+                counter = counter + 1
+                # print("Value Captured")           # added for debug purposes
+            else:
+                messagebox.showinfo(title='ERROR', message='Please ensure the number is between 0 and 255')
+        except:
+            messagebox.showinfo(title='ERROR', message='Please ensure you enter a number between 0 and 255')
+
+    # print ("data caltured:%s" % to_write)  # Added for Debug purposes
+    return to_write
+
+
+def WritePage(fd):
+    # write to the tag page, user selecting the page
+
+    mode = readerModeVariable.get()
+    if mode == "EM/MC2000":
+        messagebox.showinfo(title='ATTENTION', message='This functionality does not support EM/MC2000 tags.')
+        return
+    
+    data = []
+    pagesize = 4
+
+    page = simpledialog.askstring(title="INPUT", prompt="Place the tag to the receiver and enter the number\n of the page to which you wish to write", initialvalue='Enter number >0 and <255')
+    if page.isnumeric() == False:
+        messagebox.showinfo(title='ATTENTION', message='You must input a number. Cancelled.')
+        return
+    if int(page) > 255 or int(page) < 0:
+        messagebox.showinfo(title='ATTENTION', message='Number must be between 0 and 255. Cancelled.')
+        return
+    
+    data = CaptureDataToWrite(pagesize)
+    # print("Data to write:%s" % block)         #Added for Debug purposes
+
+    notag = True
+    while notag:
+        WaitForCTS()
+        # print ("Sending Tag Write Page Command")    #Added for Debug purposes
+        wiringpi2.serialPutchar(fd, 0x57)
+        wiringpi2.serialPutchar(fd, int(page))           # Write to page ____
+        wiringpi2.serialPutchar(fd, data[0])
+        wiringpi2.serialPutchar(fd, data[1])
+        wiringpi2.serialPutchar(fd, data[2])
+        wiringpi2.serialPutchar(fd, data[3])
+        time.sleep(0.1)
+        ans = ReadInt(fd)
+        # print ("Tag Status: %s" % hex(ans))    #Added for Debug purposes
+        if ans == int("0xD6", 16):
+            notag = False
+            # print ("Tag Present") #Added for Debug purposes
+            textBox.delete('1.0', END)
+            textBox.insert('1.0', "Successfully wrote to tag:")
+            ReadPage(fd, page)
+    return
+
+def WriteBlock(fd):
+    # write the tag and all blocks from within it
+    # Only works for HS/1 as other tags don't support it
+    
+    mode = readerModeVariable.get()
+    if mode != "Hitag H1/S":
+        messagebox.showinfo(title='ATTENTION', message='This functionality only supports Hitag H1/S tags.')
+        return
+    
+    data = []
+    blockno = 0
+    blocksize = 16
+
+    blockno = simpledialog.askstring(title="INPUT", prompt="Place the tag to the receiver and enter the number\n of the Block to which you wish to write", initialvalue='Enter number >0 and <255')
+    if blockno.isnumeric() == False:
+        messagebox.showinfo(title='ATTENTION', message='You must input a number. Cancelled.')
+        return
+    if int(blockno) > 255 or int(blockno) < 0:
+        messagebox.showinfo(title='ATTENTION', message='Number must be between 0 and 255. Cancelled.')
+        return
+    
+    data = CaptureDataToWrite(blocksize)
+    # print ("\nWriting Tag Data Block %d ......." % int(blockno))
+    # print("Data to write:%s" % block)         #Added for Debug purposes
+
+    notag = True
+    while notag:
+        WaitForCTS()
+        print ("Sending Tag Write Blocks command and data")  #Added for Debug purposes
+        wiringpi2.serialPutchar(fd, 0x72)
+        wiringpi2.serialPutchar(fd, int(blockno)) # Write to block ____
+        for f in data:
+            wiringpi2.serialPutchar(fd, f)
+            time.sleep(0.1)
+        time.sleep(0.1)
+        ans = ReadInt(fd)
+        print ("Tag block Status: %s" % hex(ans))    #Added for Debug purposes
+        if ans == int("0xD6", 16):
+            # Tag present and read
+            notag = False
+            #print ("Tag Present")  #Added for Debug purposes
+            textBox.delete('1.0', END)
+            textBox.insert('1.0', "Successfully wrote to tag:")
+            ReadBlock(fd, blockno)
+    return
+
+
+def SetReaderMode(fd, choice):
+    if choice == "Hitag H2":
+        WaitForCTS()
+        wiringpi2.serialPutchar(fd, 0x76)
+        wiringpi2.serialPutchar(fd, 0x01) # 0x01 = H2
+    elif choice =="Hitag H1/S":
+        WaitForCTS()
+        wiringpi2.serialPutchar(fd, 0x76)
+        wiringpi2.serialPutchar(fd, 0x02) # 0x02 = H1/S
+    elif choice == "EM/MC2000":
+        WaitForCTS()
+        wiringpi2.serialPutchar(fd, 0x76)
+        wiringpi2.serialPutchar(fd, 0x03) # 0x03 = EM/MC2000
+    else:
+        print ("ERROR")
+        choice = ""
+        return
+
+    time.sleep(0.1)
+    textBox.delete('1.0', END)
+    ans = ReadInt(fd)
+    # print ("Tag Status: %s" % hex(ans)) #Added for Debug purposes
+    if ans == int("0xC0", 16):
+        textBox.insert('1.0', "Reader Operating Mode: %s ......" % choice)
+        # print ("Reader Operating Mode %s ......" % choice)
+    else:
+        textBox.insert('1.0', "Unexpected response %s" % hex(ans))
+        wiringpi2.serialFlush(fd)
+    return
+
+
+def FactoryReset(fd):
+    WaitForCTS()
+    # print ("Performing a factory reset ....") #Added for Debug purposes
+    wiringpi2.serialPutchar(fd, 0x46)
+    wiringpi2.serialPutchar(fd, 0x55)
+    wiringpi2.serialPutchar(fd, 0xAA)
+    time.sleep(0.1)
+    
+    # Reset Reading Mode
+    SetReaderMode(comms, "Hitag H1/S")
+    readerModeVariable.set(MODEOPTIONS[1]) # default value
+    # Reset Polling Delay
+    pollDelayVar.set(POLLOPTIONS[3]) # default value
+    SetPollingDelay(comms, "262ms (default)")
+    textBox.delete("1.0", END)
+    textBox.insert("1.0", "FACTORY RESET COMPLETE")
+    return
+
+
+def printText(ans, page, printType):
+    textBox.insert(END, "Results:\n")
+    
+    # Construct output string
+    if printType == "page":
+        result = "\nPage " + str(page)
+    else: #printType == "block":
+        result = "\nBlock " + str(page)
+
+    textBox.insert(END, result)
+        
+    result2 = "\n--> %s" % ans
+    textBox.insert(END, result2) 
+    textBox.insert(END, " <--\n")
+
+    result3 = "++> "
+    for f in ans:
+        result3 += str(ord(f))
+        result3 += " "
+    result3 += "<++\n"
+    textBox.insert(END, result3)
+    return
+
+#5._______________________________GUI FUNCTION BUTTONS
+
+# You must use a lambda function in the command assignment using tkinter's Button().
+# If you type "command=ReadVersion(comms)" without lamnda function it will perform functions at startup and crash.
+
+firmwareButton = Button(window,text='Display firmware version information', command=lambda:ReadVersion(comms)) 
+acknowledgeTagButton = Button(window, text='Acknowledge the presence of Tag', command=lambda:ReadTagStatus(comms))
+# SET POLLING DELAY   -- SEE BELOW SECTION
+# SELECT READER MODE  -- SEE BELOW SECTION
+readPageButton = Button(window, text='Read PAGE of data from Tag', command=lambda:ReadPage(comms)) 
+readBlockButton = Button(window, text='Read BLOCK of data from Tag', command=lambda:ReadBlock(comms)) 
+writePageButton = Button(window, text='Write PAGE of data to Tag', command=lambda:WritePage(comms)) 
+writeBlockButton = Button(window, text='Write BLOCK of data to Tag', command=lambda:WriteBlock(comms)) 
+readAllPagesButton = Button(window, text='Read All Pages', command=lambda:ReadAllPages(comms)) 
+readAllBlocksButton = Button(window, text='Read All Blocks', command=lambda:ReadAllBlocks(comms)) 
+testModeButton = Button(window, text='Test Mode', command=Notice)
+factoryResetButton = Button(window, text='Perform a Factory Reset', command=lambda:FactoryReset(comms))
+
+
+#6._______________________________BUTTON GRAPHICAL CONFIGURATION (GRID)
+
+# For configurability it is recommended that tkinter object (e.g. Button) configuration code is grouped seperately from the options above.
+
+firmwareButton.grid(column=1, row=1, columnspan = 2)
+acknowledgeTagButton.grid(column=1, row=2, columnspan = 2)
+# SET POLLING DELAY   -- SEE BELOW SECTION
+# SELECT READER MODE  -- SEE BELOW SECTION
+readPageButton.grid(column=1, row=5, columnspan = 2)
+readBlockButton.grid(column=1, row=6, pady=(0,10), columnspan = 2)
+writePageButton.grid(column=1, row=7, columnspan = 2)
+writeBlockButton.grid(column=1, row=8, pady=(0,10), columnspan = 2)
+readAllPagesButton.grid(column=1, row=9, columnspan = 2)
+readAllBlocksButton.grid(column=1, row=10, pady=(0,20), columnspan = 2)
+testModeButton.grid(column=1, row=11, columnspan = 2)
+factoryResetButton.grid(column=1, row=12, columnspan = 2)
+
+
+#7._____________________________________READERMODE LABEL & DROPDOWN MENU CONFIGURATION
+MODEOPTIONS = ["Hitag H2", "Hitag H1/S", "EM/MC2000"]
+
+readerModeVariable = StringVar(window)
+readerModeVariable.set(MODEOPTIONS[1]) # default value
+
+# Construct Label and Dropdown Menu for changing Tag Reader Mode
+modevar = StringVar()
+modevar.set("Set Reader Mode:")
+readerModeLabel = Label(window, textvariable=modevar, width='15', font=('arial', 16), foreground = '#009900')
+readerModeLabel.grid(column=1,row=4)
+
+# EXAMPLE SYNTAX: menuObject = OptionMenu(PARENT WINDOW, VALUE TO BE CHANGED, "DEFAULT TEXT", * OPTIONS ARRAY/LIST)
+selectReaderModeMenu = OptionMenu(window, readerModeVariable, MODEOPTIONS[1], *MODEOPTIONS, command=lambda _:SetReaderMode(comms, readerModeVariable.get() ) )
+selectReaderModeMenu.grid(column=2,row=4)
+
+
+#8. _______________________________POLLING DELAY MENU CONFIGURATION
+POLLOPTIONS = ["NO DELAY", "20ms", "65ms", "262ms (default)", "1s", "4s"]
+
+pollDelayVar = StringVar(window)
+pollDelayVar.set(POLLOPTIONS[3]) # default value = 262ms
+
+# Construct Label and Dropdown Menu for changing Polling Delay
+pollText = StringVar()
+pollText.set("Set Polling Delay:")
+pollDelayLabel = Label(window, textvariable=pollText, width='15', font=('arial', 16), foreground = '#009900')
+pollDelayLabel.grid(column=1,row=3)
+
+pollDelayMenu = OptionMenu(window, pollDelayVar, POLLOPTIONS[3], *POLLOPTIONS, command=lambda _:SetPollingDelay(comms, pollDelayVar.get() ) )
+pollDelayMenu.grid(column=2,row=3)
+
+
+#9._______________________________MAIN LOOP & TEXT BOX
+textBox = Text(width='40', wrap='word') # Declare here - FactoryReset() uses textBox
+
+comms = RFIDSetup() 
+FactoryReset(comms) # Reset to ensure Polling/Reader Mode changes are reset on startup 
+
+# Propagate the GUI textbox with text on program startup
+message = "RFID Tag Reader 125kHz\nCogniot Products\nPirFlx\n\nThis program and its code is experimental, and is not intended to be used in a production environment. It demonstrates the very basics of what is required to get the Raspberry Pi receiving RFID data and configuring the RFID Reader parameters.\n\nChange the GPIO PIN by adjusting settings in Section 1 of the source code.\n\nThis program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation as version 2 of the License.\n\nFor more information refer to www.cogniot.eu"
+textBox.delete('1.0', END) 
+textBox.insert('end', message)
+textBox.grid(column=3,row=1,rowspan=12,sticky="NSEW",padx=10,pady=10)
+
+window.mainloop() # Initiate program
