@@ -1,0 +1,149 @@
+This documents the debugging of serial port configuration issues.
+The ultimate issue was a one of power supply stability.
+This debugging was highly beneficial to understanding RPi architecture.
+C Beaney 27.01.23
+
+#1
+SETUP
+The serial login shell is disabled
+The serial interface is enabled     
+
+--@------:~ $ ls -al /dev/ | grep serial
+lrwxrwxrwx   1 root root           5 Jan 13 21:55 serial0 -> ttyS0
+lrwxrwxrwx   1 root root           7 Jan 13 21:55 serial1 -> ttyAMA0
+
+RESULT
+GUI can run and setup WiringPi but cannot read from tags (extension board doesn't blink).
+
+Program returns error: 'unexpected response 0x0' when running Python script/GUI.
+Reader board doesn't seem to be able to "see" the tags, and the LED doesn't change when I put one into the antennae.
+
+
+
+
+#2
+CHANGES
+1. Adding 'dtoverlay=disable-bt' to boot/config.txt (see config1.txt)
+2. running 'sudo systemctl disable hciuart'
+	
+	--@------:~ $ sudo systemctl disable hciuart
+	Removed /etc/systemd/system/dev-serial1.device.wants/hciuart.service.
+
+
+RESULT
+GUI can run and setup WiringPi but cannot read from tags.
+
+	--@------:~ $ ls -al /dev/ | grep serial
+	lrwxrwxrwx   1 root root           7 Jan 13 22:32 serial0 -> ttyAMA0
+	lrwxrwxrwx   1 root root           5 Jan 13 22:32 serial1 -> ttyS0
+
+NOTE/ERROR
+During this test, enable_uart=1 was in the config file (not typed in by me).
+Changed to enable_uart=0 on test #6 due to my lack of understanding.
+#6 inevitably failed.
+
+
+
+#3
+SETUP
+
+	lrwxrwxrwx   1 root root           5 Jan 13 22:38 serial1 -> ttyS0
+
+CHANGES
+	The serial login shell is disabled
+	The serial interface is disabled     
+
+(this is to double-check settings per the original installation guide sent to me)
+
+
+RESULT
+	"Unable to Setup communications.
+	WiringPi setup status is 0 (expected: 0).
+	Serial port is "-1 (expected: >0). Exiting program."
+
+Reverting to previous step.
+
+
+
+#4
+CHANGES
+	The serial login shell is disabled
+	The serial interface is enabled  
+
+RESULTS the same as #2.
+
+
+#5
+CHANGES
+Removing changes made in #2 and reverting to #1 status:
+
+	--@------:~ $ sudo systemctl enable hciuart
+	Created symlink /etc/systemd/system/dev-serial1.device.wants/hciuart.service → /lib/systemd/system/hciuart.service.
+
+RESULTS
+	--@------:~ $ ls -al /dev/ | grep 'serial'
+	lrwxrwxrwx   1 root root           5 Jan 13 23:08 serial0 -> ttyS0
+	lrwxrwxrwx   1 root root           7 Jan 13 23:08 serial1 -> ttyAMA0
+
+
+
+#6
+CHANGES
+1. Adding 'dtoverlay=disable-bt' to boot/config.txt (see config2.txt)
+2. Disabling Blutooth & Setting enable_uart to 0 (compare with #2)
+							
+	enable_uart=0
+	dtoverlay=disable-bt
+
+3. running 'sudo systemctl disable hciuart'
+
+	--@------:~ $ sudo systemctl disable hciuart
+	Removed /etc/systemd/system/dev-serial1.device.wants/hciuart.service.
+
+RESULT
+
+	--@------:~ $ ls -al /dev/ | grep 'serial'
+	lrwxrwxrwx   1 root root           5 Jan 13 23:24 serial1 -> ttyS0
+
+WPI fails to make a connection. Unusual behaviour '0x0' error code when code is adjust to run through Serial1. Resetting to #2.
+
+
+
+#7
+CHANGES
+Returned to standard Bluetooth Enabled setup && with enable_uart=1
+
+	enable_uart=1
+	# dtoverlay=disable-bt
+
+	--@------:~ $ sudo systemctl enable hciuart
+	Created symlink /etc/systemd/system/dev-serial1.device.wants/hciuart.service → /lib/systemd/system/hciuart.service.
+
+RESULT
+	--@------:~ $ ls -al /dev/ | grep 'serial'
+	lrwxrwxrwx   1 root root           5 Jan 14 12:30 serial0 -> ttyS0
+	lrwxrwxrwx   1 root root           7 Jan 14 12:30 serial1 -> ttyAMA0
+
+Program returns error in RFIDSetup() function:
+
+	fd = wiringpi2.serialOpen('/dev/serial1', 9600) # fd = 'file descriptor'
+
+If above, then 'unexpected response 0x0' and ReadInt returns '-1' error code.
+
+	fd = wiringpi2.serialOpen('/dev/serial0', 9600)
+
+If above, script/GUI setup no problem, but Reader board doesn't seem to be able to "see" the tags,
+and the LED doesn't change when I put one into the antennae.
+
+
+#8
+CHANGES
+Set back up to #2 and ran tests on gpio pins and other possible errors. Nothing found.
+
+STATUS
+	--@------:~ $ ls -al /dev/ | grep 'serial'
+	lrwxrwxrwx   1 root root           7 Jan 14 12:48 serial0 -> ttyAMA0
+	lrwxrwxrwx   1 root root           5 Jan 14 12:48 serial1 -> ttyS0
+
+
+
