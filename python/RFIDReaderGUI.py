@@ -191,6 +191,8 @@ def ReadPage(fd, page=None):
             notag = False
             ans = ReadText(fd)
             printText(ans, page, "page")
+            # interrupt the loop thread in multi-read functions to show results in real time
+            window.update()		# Do not refactor into printText; brings up errors.
         elif ans == int("0xD2", 16):	# "0xD2" means the Tag Page doesn't exist
             errmsg = 'Error Code: 0xD2\nPage %s does not exist.' % page
             messagebox.showinfo(title='ATTENTION', message=errmsg)
@@ -204,7 +206,7 @@ def ReadPage(fd, page=None):
 
 
 def ReadPageWithTimeout(fd, page=None):
-    timeout=1
+    timeout = 1
     start_time = time.time()
     
     if page == None:
@@ -232,6 +234,7 @@ def ReadPageWithTimeout(fd, page=None):
             notag = False	# Tag present and read
             ans = ReadText(fd)
             printText(ans, page, "page")
+            window.update()
             return "0xD6"
         
 
@@ -272,6 +275,7 @@ def ReadBlock(fd, block=None):    # read the tag and all blocks from within it
             textBox.delete('1.0', END)
             ans = ReadText(fd)
             printText(ans, block, "block")
+            window.update()
         elif ans == int("0xD2", 16):
             # Tag page doesn't exist -- return ans to break out of the ReadAllPages() calling loop.
             errmsg = 'Block %s does not exist.' % block
@@ -393,6 +397,7 @@ def ReadAllPages(fd):    # Cycle through and read all pages available
             break
         if ans != "0xD6":
             textBox.insert(END, "\nPage " + str(f) + "\nTimeout\nUnable to read this page.\n")
+            window.update()
     
     return
 
@@ -408,7 +413,7 @@ def ReadAllBlocks(fd):
             messagebox.showinfo(title='ATTENTION', message='Successfully read all Blocks on this tag.')
             break
     return
-
+        
 
 def BeginMultiAntennaRead(comms):
     
@@ -417,24 +422,27 @@ def BeginMultiAntennaRead(comms):
     
     while True:
         # print("\n\nAntenna A on")
+        textBox.insert(END, "Antenna A on\n")
         wiringpi2.digitalWrite(GPIO_PIN_A, 1)
         wiringpi2.digitalWrite(GPIO_PIN_B, 0)
-        pinA = ReadPageWithTimeout(comms)
-        time.sleep(0.01)
+        antA = ReadPageWithTimeout(comms)
+        window.update()
         
         # print("\n\nAntenna B on")
+        textBox.insert(END, "Antenna B on\n")
         wiringpi2.digitalWrite(GPIO_PIN_A, 0)
         wiringpi2.digitalWrite(GPIO_PIN_B, 1)
-        pinB = ReadPageWithTimeout(comms)
+        antB = ReadPageWithTimeout(comms)
         time.sleep(0.01)
-        
+        window.update()
+
         wiringpi2.digitalWrite(GPIO_PIN_A, 0) # Both antennae must Not be simultaneously powered HI
         wiringpi2.digitalWrite(GPIO_PIN_B, 0)
 
-        if pinA == "0xD6" and pinB == "0xD6":
-            # print("BeginMultiAntennaRead: both tags successfully read simultaneously")
-            textBox.insert(END, "\nBoth tags successfully read simultaneously. Exiting.\n")
-            break
+#         if antA == "0xD6" and antB == "0xD6":
+#             # print("BeginMultiAntennaRead: both tags successfully read simultaneously")
+#             textBox.insert(END, "\nBoth tags successfully read simultaneously. Exiting.\n")
+#             break
 
 
 def FactoryReset(fd, settingUp = None):
@@ -639,7 +647,7 @@ pollDelayMenu.grid(column=2,row=3)
 textBox = Text(width='40', wrap='word')
 textBox.grid(column=3,row=1,rowspan=12,sticky="NSEW",padx=10,pady=10)
 
-getMode = messagebox.askyesnocancel("MODE", "Are you using a single antenna?")
+getMode = messagebox.askyesnocancel("MODE", "Are you using a single antenna?\n\nIMPORTANT: You must configure this program to match your GPIO configuration.")
 if getMode == None:
     sys.exit()
 elif getMode == True:
