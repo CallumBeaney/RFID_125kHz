@@ -1,5 +1,11 @@
 # RFID_125kHz
-Example software on using the Bostin Technology 125kHz RFID Raspberry Pi
+Example software on using the CognIoT 125kHz RFID Raspberry Pi extension board.  
+My internship has also involved using WiringPi, studying core SPI structures, LORAWAN basics, serial port debugging and fourier transform-related libraries.  
+Long-term this technology will be used in monitoring bee and hornet activity, likely using a Flutter application to receive and send data over Bluetooth.  
+
+[<img src="https://callumbeaney.github.io/index_images/rfid.jpg" width="50%">](https://www.youtube.com/watch?v=z8FjJ5C5CEw "A video showing the basic operation")
+### Click the above image to see a basic video showing the core operation  
+
 
 "This program and its code is experimental, and is not intended to be used in a production environment. It demonstrates the very basics of what is required to get the Raspberry Pi receiving RFID data and configuring the RFID Reader parameters."
 
