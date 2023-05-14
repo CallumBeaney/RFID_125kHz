@@ -11,7 +11,6 @@
 
 # To turn on all console messages for debugging, find & replace all "# print" with "print".
 
-
 #1._____________________________GPIO/WIRINGPI imports & setup
 import wiringpi as wiringpi2
 import time
@@ -25,24 +24,20 @@ from tkinter import simpledialog
 from turtle import width
 from curses import window
 
-# setup for GPIO Pin to use based on the jumper connection
-CTS_PIN = 1
+CTS_PIN = 1 # setup for GPIO Pin to use based on the jumper connection
 
-# SINGLE ANTENNA MODE
-GPIO_PIN = 5
+# SINGLE ANTENNA MODE -- configure for your Pi
 # GPIO_PIN = 0 # Jumper 2, also known as (BCM) GPIO17
-# GPIO_PIN = 1 # Jumper 1, also known as (BCM) GPIO18
+GPIO_PIN = 1 # Jumper 1, also known as (BCM) GPIO18
 # GPIO_PIN = 2 # Jumper 3, also known as (BCM) GPIO21 (Rv 1) or (BCM) GPIO27 (Rv 2)
 # GPIO_PIN = 3 # Jumper 4, also known as (BCM) GPIO22
 
-# MULTI-ANTENNA MODE
-GPIO_PIN_A = 5
+# MULTI-ANTENNA MODE -- configure for your Pi
+GPIO_PIN_A = 5 
 GPIO_PIN_B = 5
 
 
 #2._______________________________GUI DEFINITIONS
-
-# NOTE ON TKINTER TEXTBOX SYNTAX: variableAlias.methodname("lineNum.columnNum", variable/command)
 
 window = Tk()
 window.configure(bg='black')
@@ -51,7 +46,7 @@ window.resizable(width=0, height=0) # force-prevent resizing
 
 # BUTTON STYLING
 style  = Style()
-style.configure('TButton', font = ('arial', 12), foreground = '#009900', width='30', wrap=WORD) # 'TButton' applies the style to _ALL_ buttons in the GUI
+style.configure('TButton', font = ('arial', 12), foreground = '#009900', width='30', wrap=WORD) # 'TButton' applies the style to _all_ buttons in the GUI
 
 
 #3_______________________________GUI BUTTON FUNCTIONS
@@ -466,6 +461,7 @@ def FactoryReset(fd, settingUp = None):
 
 def WaitForCTS():
     # continually monitor the selected GPIO pin and wait for the line to go low
+    # CTS is implemented via the use of the GPIO as the UART on the Pi dosen't have any control lines.
     # print ("Waiting for CTS")     # Added for debug purposes
     while wiringpi2.digitalRead(CTS_PIN):
         time.sleep(0.001)
@@ -473,7 +469,6 @@ def WaitForCTS():
 
 
 def RFIDSetup(mode=None):
-    # 1: Call setup for wiringpi2 software, 2: set GPIO pin for input, 3: Open serial port & set speed.
     response = wiringpi2.wiringPiSetup()
     
     if mode == "single":
@@ -481,10 +476,15 @@ def RFIDSetup(mode=None):
     elif mode == "multi":
         wiringpi2.pinMode(GPIO_PIN_A, 1) # SET UP EXTENSION ANTENNAE by setting both 'hi'
         wiringpi2.pinMode(GPIO_PIN_B, 1)
-        wiringpi2.digitalWrite(GPIO_PIN_A, 0) # SET THEM TO 'lo'
+        wiringpi2.digitalWrite(GPIO_PIN_A, 0) # Set both to 'lo'. From hereon setting one 'hi' enables tag reading
         wiringpi2.digitalWrite(GPIO_PIN_B, 0)
     
-    fd = wiringpi2.serialOpen('/dev/serial0', 9600)		# fd = 'file descriptor'
+    # Open serial port & set speed:
+    fd = wiringpi2.serialOpen('/dev/serial0', 9600) # fd = 'file descriptor' 
+        # Check your serial configuration with:
+        #    ls -al /dev/ | grep serial  
+        #    ls -lA /dev/serial/by-id  
+            
     wiringpi2.serialFlush(fd)   # clear the serial buffer of any left over data
     
     if response == 0 and fd >0:
